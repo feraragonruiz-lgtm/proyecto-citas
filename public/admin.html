@@ -53,6 +53,26 @@
     <div id="lista"></div>
   </section>
 
+  <section id="seccion-avisos" hidden>
+    <h2>Avisos en tu celular</h2>
+    <div id="avisos-inactivos" hidden>
+      <p>Recibe una notificación en tu celular cada vez que una clienta pida una cita.</p>
+      <button type="button" id="boton-activar-avisos">Activar avisos</button>
+    </div>
+    <div id="avisos-activos" hidden>
+      <p><strong>1.</strong> Instala la app gratuita <strong>ntfy</strong> en tu celular
+        (<a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener">Android</a> ·
+        <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener">iPhone</a>).</p>
+      <p><strong>2.</strong> En la app toca <strong>+</strong> y escribe este nombre de tema (cópialo exacto):</p>
+      <p class="codigo" id="tema-avisos"></p>
+      <button type="button" id="boton-copiar-tema" class="secundario">Copiar nombre</button>
+      <p><strong>3.</strong> Toca «Suscribirse» y después prueba aquí:</p>
+      <button type="button" id="boton-probar-avisos">Enviar aviso de prueba</button>
+      <p class="vacio">No compartas este nombre: quien lo tenga puede ver tus avisos.</p>
+    </div>
+    <p id="resultado-avisos" class="resultado" hidden></p>
+  </section>
+
   <script src="admin.js"></script>
 </body>
 </html>

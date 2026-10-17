@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const path = require('path');
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
-const { avisarCambioDeEstado } = require('./correo');
+const { avisarCambioDeEstado, esEmail, formatearFecha } = require('./correo');
+const { generarTema, enviarAviso, NTFY_URL } = require('./avisos');
 
 const { SUPABASE_URL, SUPABASE_KEY, ADMIN_PASSWORD } = process.env;
 
@@ -32,11 +33,19 @@ function generarCodigoSeguimiento() {
   return 'SOL-' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
-app.post('/solicitudes', async (req, res) => {
-  const { nombre, contacto, fecha_hora } = req.body || {};
+function sitioDe(req) {
+  return `${req.protocol}://${req.get('host')}/`;
+}
 
-  if (!nombre || !contacto || !fecha_hora) {
-    return res.status(400).json({ error: 'Faltan campos: nombre, contacto y fecha_hora son obligatorios.' });
+app.post('/solicitudes', async (req, res) => {
+  const { nombre, contacto, email, fecha_hora } = req.body || {};
+
+  if (!nombre || !contacto || !email || !fecha_hora) {
+    return res.status(400).json({ error: 'Faltan campos: nombre, teléfono, email y fecha y hora son obligatorios.' });
+  }
+
+  if (!esEmail(email)) {
+    return res.status(400).json({ error: 'El email no es válido.' });
   }
 
   if (Number.isNaN(Date.parse(fecha_hora))) {
@@ -48,6 +57,7 @@ app.post('/solicitudes', async (req, res) => {
     .insert({
       nombre,
       contacto,
+      email: email.trim(),
       fecha_hora,
       codigo_seguimiento: generarCodigoSeguimiento(),
       estado: 'pendiente',
@@ -60,16 +70,45 @@ app.post('/solicitudes', async (req, res) => {
     return res.status(500).json({ error: 'No se pudo guardar la solicitud.' });
   }
 
+  // El aviso a la dueña no debe demorar ni romper la respuesta a la clienta.
+  avisarNuevaSolicitud(data, sitioDe(req)).catch((e) => console.error('Error al avisar a la dueña:', e.message));
+
   res.status(201).json({
     codigo_seguimiento: data.codigo_seguimiento,
     estado: data.estado,
   });
 });
 
-const CAMPOS_PUBLICOS = 'codigo_seguimiento, nombre, contacto, fecha_hora, estado';
+// Lo que ve cualquiera que tenga el código; los datos de contacto quedan solo para el panel.
+const CAMPOS_PUBLICOS = 'codigo_seguimiento, nombre, fecha_hora, estado';
+const CAMPOS_ADMIN = CAMPOS_PUBLICOS + ', contacto, email, created_at';
 
 function noEncontrada(res, codigo) {
   return res.status(404).json({ error: `No existe una solicitud con el código ${codigo}.` });
+}
+
+async function leerAjuste(clave) {
+  const { data, error } = await supabase
+    .from('ajustes')
+    .select('valor')
+    .eq('clave', clave)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? data.valor : null;
+}
+
+const AJUSTE_TEMA_AVISOS = 'ntfy_tema';
+
+async function avisarNuevaSolicitud(solicitud, sitio) {
+  const tema = await leerAjuste(AJUSTE_TEMA_AVISOS);
+  if (!tema) return;
+
+  await enviarAviso(tema, {
+    titulo: 'Nueva solicitud de cita',
+    mensaje: `${solicitud.nombre} pidió una cita para el ${formatearFecha(solicitud.fecha_hora)}\nTel: ${solicitud.contacto}\nToca para responder en tu panel.`,
+    enlace: sitio + 'admin',
+  });
 }
 
 // La clave de administración se toma de ADMIN_PASSWORD si existe; si no, de la
@@ -96,15 +135,7 @@ const claveDeEntorno = ADMIN_PASSWORD ? cifrarClave(ADMIN_PASSWORD) : null;
 // Devuelve la clave cifrada, o null si todavía no se creó ninguna.
 async function obtenerClaveGuardada() {
   if (claveDeEntorno) return claveDeEntorno;
-
-  const { data, error } = await supabase
-    .from('ajustes')
-    .select('valor')
-    .eq('clave', AJUSTE_CLAVE)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data ? data.valor : null;
+  return leerAjuste(AJUSTE_CLAVE);
 }
 
 // Las rutas de administración requieren el header X-Admin-Password.
@@ -197,7 +228,7 @@ function cambiarEstado(estado) {
       .from('solicitudes')
       .update({ estado })
       .eq('codigo_seguimiento', codigo)
-      .select(CAMPOS_PUBLICOS)
+      .select(CAMPOS_ADMIN)
       .maybeSingle();
 
     if (error) {
@@ -210,8 +241,7 @@ function cambiarEstado(estado) {
     }
 
     // El cambio ya quedó guardado; si el correo falla, igual respondemos bien.
-    const sitio = `${req.protocol}://${req.get('host')}/`;
-    const aviso = await avisarCambioDeEstado(data, sitio);
+    const aviso = await avisarCambioDeEstado(data, sitioDe(req));
 
     res.json({ ...data, aviso });
   };
@@ -227,7 +257,7 @@ app.get('/admin', (req, res) => {
 app.get('/api/admin/solicitudes', soloAdmin, async (req, res) => {
   const { data, error } = await supabase
     .from('solicitudes')
-    .select(CAMPOS_PUBLICOS + ', created_at')
+    .select(CAMPOS_ADMIN)
     .order('fecha_hora', { ascending: true });
 
   if (error) {
@@ -236,6 +266,48 @@ app.get('/api/admin/solicitudes', soloAdmin, async (req, res) => {
   }
 
   res.json(data);
+});
+
+// Avisos al celular: el panel muestra el tema de ntfy al que hay que suscribirse.
+app.get('/api/admin/avisos', soloAdmin, async (req, res) => {
+  try {
+    const tema = await leerAjuste(AJUSTE_TEMA_AVISOS);
+    res.json({ tema, servidor: NTFY_URL });
+  } catch (error) {
+    console.error('Error al leer el tema de avisos:', error);
+    res.status(500).json({ error: 'No se pudo leer la configuración de avisos.' });
+  }
+});
+
+app.post('/api/admin/avisos', soloAdmin, async (req, res) => {
+  const { error } = await supabase
+    .from('ajustes')
+    .upsert({ clave: AJUSTE_TEMA_AVISOS, valor: generarTema(), actualizado: new Date().toISOString() });
+
+  if (error) {
+    console.error('Error al guardar el tema de avisos:', error);
+    return res.status(500).json({ error: 'No se pudieron activar los avisos.' });
+  }
+
+  res.status(201).json({ tema: await leerAjuste(AJUSTE_TEMA_AVISOS), servidor: NTFY_URL });
+});
+
+app.post('/api/admin/avisos/prueba', soloAdmin, async (req, res) => {
+  const tema = await leerAjuste(AJUSTE_TEMA_AVISOS).catch(() => null);
+  if (!tema) {
+    return res.status(409).json({ error: 'Primero activa los avisos.' });
+  }
+
+  const ok = await enviarAviso(tema, {
+    titulo: 'Aviso de prueba',
+    mensaje: 'Así te van a llegar las nuevas solicitudes de cita de Mabel Citas.',
+    enlace: sitioDe(req) + 'admin',
+  });
+
+  if (!ok) {
+    return res.status(502).json({ error: 'No se pudo enviar el aviso de prueba.' });
+  }
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {

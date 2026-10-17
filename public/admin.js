@@ -9,10 +9,10 @@ const errorPanel = document.getElementById('error-panel');
 const avisoPanel = document.getElementById('aviso-panel');
 
 const AVISOS = {
-  enviado: (s) => `Listo. Se le envió un correo a ${s.nombre} (${s.contacto}).`,
-  sin_email: (s) => `Listo. Ahora toca «Avisar por WhatsApp» en la cita de ${s.nombre} para enviarle el mensaje.`,
-  no_configurado: (s) => `Listo. Ahora toca «Avisar por correo» en la cita de ${s.nombre} para enviarle el mensaje.`,
-  error: (s) => `Listo, pero el correo automático a ${s.nombre} falló. Toca «Avisar por correo» para enviárselo tú.`,
+  enviado: (s) => `Listo. Se le envió un correo automático a ${s.nombre} (${s.email || s.contacto}). Si quieres, avísale también por WhatsApp.`,
+  sin_email: (s) => `Listo. ${s.nombre} no dejó email: toca «Avisar por WhatsApp» en su cita para enviarle el mensaje.`,
+  no_configurado: (s) => `Listo. El correo automático todavía no está activado: toca «Avisar por WhatsApp» en la cita de ${s.nombre}.`,
+  error: (s) => `Listo, pero el correo automático a ${s.nombre} falló. Toca «Avisar por WhatsApp» en su cita.`,
 };
 
 const CODIGO_PAIS = '506'; // Costa Rica
@@ -51,10 +51,10 @@ function botonAviso(s) {
   if (numero) {
     enlace.textContent = 'Avisar por WhatsApp';
     enlace.href = `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
-  } else if (s.contacto.includes('@')) {
+  } else if (s.email || s.contacto.includes('@')) {
     enlace.textContent = 'Avisar por correo';
     const asunto = s.estado === 'confirmada' ? 'Tu cita en Mabel Citas está confirmada' : 'Sobre tu solicitud de cita en Mabel Citas';
-    enlace.href = `mailto:${s.contacto.trim()}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
+    enlace.href = `mailto:${(s.email || s.contacto).trim()}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
   } else {
     return null;
   }
@@ -113,6 +113,7 @@ function salir(mensaje) {
   clave = null;
   guardarClave(null);
   seccionPanel.hidden = true;
+  seccionAvisos.hidden = true;
   seccionCrear.hidden = true;
   seccionLogin.hidden = false;
   mostrarError(errorLogin, mensaje || '');
@@ -199,6 +200,7 @@ async function cargarSolicitudes() {
     seccionLogin.hidden = true;
     seccionPanel.hidden = false;
     dibujarLista(cuerpo);
+    if (seccionAvisos.hidden) cargarAvisos();
   } catch {
     mostrarError(errorPanel, 'No se pudo conectar con el servidor.');
   }
@@ -214,9 +216,10 @@ function dibujarLista(solicitudes) {
     const item = crear('div', undefined, 'solicitud');
     item.append(
       crear('span', ESTADOS[s.estado] || s.estado, 'estado estado-' + s.estado),
-      crear('p', new Date(s.fecha_hora).toLocaleString('es', { dateStyle: 'full', timeStyle: 'short' })),
+      crear('p', formatearFecha(s.fecha_hora)),
       crear('p', 'Clienta: ' + s.nombre),
-      crear('p', 'Contacto: ' + s.contacto),
+      crear('p', (s.email ? 'Teléfono: ' : 'Contacto: ') + s.contacto),
+      ...(s.email ? [crear('p', 'Email: ' + s.email)] : []),
       crear('p', 'Código: ' + s.codigo_seguimiento),
     );
 
@@ -275,6 +278,64 @@ formLogin.addEventListener('submit', async (event) => {
   guardarClave(clave);
   formLogin.reset();
   await cargarSolicitudes();
+});
+
+// Avisos al celular con ntfy.
+
+const seccionAvisos = document.getElementById('seccion-avisos');
+const avisosInactivos = document.getElementById('avisos-inactivos');
+const avisosActivos = document.getElementById('avisos-activos');
+const temaAvisos = document.getElementById('tema-avisos');
+const resultadoAvisos = document.getElementById('resultado-avisos');
+
+function mostrarAvisos(tema) {
+  seccionAvisos.hidden = false;
+  avisosInactivos.hidden = Boolean(tema);
+  avisosActivos.hidden = !tema;
+  temaAvisos.textContent = tema || '';
+}
+
+function mostrarResultadoAvisos(mensaje, esError) {
+  mostrarError(resultadoAvisos, mensaje);
+  resultadoAvisos.classList.toggle('error', Boolean(esError));
+}
+
+async function cargarAvisos() {
+  try {
+    const { respuesta, cuerpo } = await pedir('/api/admin/avisos');
+    if (respuesta.ok) mostrarAvisos(cuerpo.tema);
+  } catch {
+    // Si falla, la sección queda oculta; las citas siguen funcionando.
+  }
+}
+
+document.getElementById('boton-activar-avisos').addEventListener('click', async () => {
+  mostrarResultadoAvisos('');
+  const { respuesta, cuerpo } = await pedir('/api/admin/avisos', { method: 'POST' });
+  if (!respuesta.ok) {
+    mostrarResultadoAvisos(cuerpo.error || 'No se pudieron activar los avisos.', true);
+    return;
+  }
+  mostrarAvisos(cuerpo.tema);
+});
+
+document.getElementById('boton-copiar-tema').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(temaAvisos.textContent);
+    mostrarResultadoAvisos('Nombre copiado. Pégalo en la app ntfy.');
+  } catch {
+    mostrarResultadoAvisos('No se pudo copiar: selecciona el nombre y cópialo a mano.', true);
+  }
+});
+
+document.getElementById('boton-probar-avisos').addEventListener('click', async () => {
+  mostrarResultadoAvisos('Enviando…');
+  const { respuesta, cuerpo } = await pedir('/api/admin/avisos/prueba', { method: 'POST' });
+  if (!respuesta.ok) {
+    mostrarResultadoAvisos(cuerpo.error || 'No se pudo enviar el aviso de prueba.', true);
+    return;
+  }
+  mostrarResultadoAvisos('Aviso enviado. Si no te llegó, revisa que te suscribiste al nombre exacto en la app ntfy.');
 });
 
 document.getElementById('boton-salir').addEventListener('click', () => salir());

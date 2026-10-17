@@ -57,11 +57,18 @@ function armarHtml(nombre, mensaje, codigo, sitio) {
 </div>`;
 }
 
-// Devuelve 'enviado', 'sin_email' (el contacto es un teléfono), 'no_configurado' o 'error'.
+// Las solicitudes nuevas traen "email"; las viejas solo "contacto", que a veces era un email.
+function emailDe(solicitud) {
+  if (solicitud.email && esEmail(solicitud.email)) return solicitud.email.trim();
+  if (esEmail(solicitud.contacto)) return solicitud.contacto.trim();
+  return null;
+}
+
+// Devuelve 'enviado', 'sin_email' (no dejó email), 'no_configurado' o 'error'.
 async function avisarCambioDeEstado(solicitud, sitio) {
   const textos = TEXTOS[solicitud.estado];
-  if (!textos) return 'sin_email';
-  if (!esEmail(solicitud.contacto)) return 'sin_email';
+  const destino = emailDe(solicitud);
+  if (!textos || !destino) return 'sin_email';
   if (!transporte) return 'no_configurado';
 
   const mensaje = textos.mensaje(formatearFecha(solicitud.fecha_hora));
@@ -69,7 +76,7 @@ async function avisarCambioDeEstado(solicitud, sitio) {
   try {
     await transporte.sendMail({
       from: `"Mabel Citas" <${GMAIL_USER}>`,
-      to: solicitud.contacto.trim(),
+      to: destino,
       subject: textos.asunto,
       text: `Hola ${solicitud.nombre},\n\n${mensaje}\n\nTu código de seguimiento es ${solicitud.codigo_seguimiento}.\n${sitio}`,
       html: armarHtml(solicitud.nombre, mensaje, solicitud.codigo_seguimiento, sitio),
@@ -81,4 +88,4 @@ async function avisarCambioDeEstado(solicitud, sitio) {
   }
 }
 
-module.exports = { avisarCambioDeEstado };
+module.exports = { avisarCambioDeEstado, esEmail, formatearFecha };

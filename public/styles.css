@@ -122,7 +122,12 @@ a.boton.secundario {
   color: var(--error);
 }
 
+a {
+  color: var(--oro);
+}
+
 .codigo {
+  overflow-wrap: anywhere;
   font-family: monospace;
   font-size: 1.2rem;
   font-weight: bold;

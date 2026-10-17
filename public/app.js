@@ -34,6 +34,7 @@ formCrear.addEventListener('submit', async (event) => {
       body: JSON.stringify({
         nombre: datos.get('nombre'),
         contacto: datos.get('contacto'),
+        email: datos.get('email'),
         // datetime-local no trae zona horaria: la convertimos a ISO con la hora local del navegador.
         fecha_hora: new Date(datos.get('fecha_hora')).toISOString(),
       }),
@@ -46,8 +47,9 @@ formCrear.addEventListener('submit', async (event) => {
     }
 
     mostrar(resultadoCrear, [
-      crear('span', 'Solicitud creada. Tu código de seguimiento es: '),
+      crear('span', 'Solicitud enviada. Tu código de seguimiento es: '),
       crear('span', cuerpo.codigo_seguimiento, 'codigo'),
+      crear('p', 'Te avisaremos por email cuando confirmemos tu cita.'),
     ], false);
     formConsultar.codigo.value = cuerpo.codigo_seguimiento;
     formCrear.reset();
