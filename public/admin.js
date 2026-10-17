@@ -10,10 +10,56 @@ const avisoPanel = document.getElementById('aviso-panel');
 
 const AVISOS = {
   enviado: (s) => `Listo. Se le envió un correo a ${s.nombre} (${s.contacto}).`,
-  sin_email: (s) => `Listo. ${s.nombre} dejó un teléfono (${s.contacto}), así que no se envió correo: avísale por mensaje.`,
-  no_configurado: (s) => `Listo, pero no se envió correo a ${s.nombre}: el envío de correos todavía no está configurado.`,
-  error: (s) => `Listo, pero el correo a ${s.nombre} no se pudo enviar. Avísale por otro medio.`,
+  sin_email: (s) => `Listo. Ahora toca «Avisar por WhatsApp» en la cita de ${s.nombre} para enviarle el mensaje.`,
+  no_configurado: (s) => `Listo. Ahora toca «Avisar por correo» en la cita de ${s.nombre} para enviarle el mensaje.`,
+  error: (s) => `Listo, pero el correo automático a ${s.nombre} falló. Toca «Avisar por correo» para enviárselo tú.`,
 };
+
+const CODIGO_PAIS = '506'; // Costa Rica
+const ZONA_HORARIA = 'America/Costa_Rica';
+
+function formatearFecha(fechaIso) {
+  return new Date(fechaIso).toLocaleString('es-CR', { timeZone: ZONA_HORARIA, dateStyle: 'full', timeStyle: 'short' });
+}
+
+// Mensaje para avisarle a la clienta, según cómo quedó su cita.
+function mensajeParaClienta(s) {
+  const fecha = formatearFecha(s.fecha_hora);
+  const cuerpo = s.estado === 'confirmada'
+    ? `tu cita en Mabel Citas del ${fecha} está confirmada ✔. ¡Te esperamos!`
+    : `lo sentimos, el horario del ${fecha} no está disponible. Por favor elige otro horario en ${location.origin}`;
+  return `Hola ${s.nombre}, ${cuerpo}\nTu código de seguimiento es ${s.codigo_seguimiento}.`;
+}
+
+// Devuelve el número listo para WhatsApp (con código de país), o null si el contacto no es un teléfono.
+function numeroWhatsapp(contacto) {
+  if (contacto.includes('@')) return null;
+  const digitos = contacto.replace(/\D/g, '');
+  if (digitos.length === 8) return CODIGO_PAIS + digitos;
+  if (digitos.length >= 10) return digitos;
+  return null;
+}
+
+function botonAviso(s) {
+  const mensaje = mensajeParaClienta(s);
+  const numero = numeroWhatsapp(s.contacto);
+  const enlace = document.createElement('a');
+  enlace.className = 'boton secundario';
+  enlace.target = '_blank';
+  enlace.rel = 'noopener';
+
+  if (numero) {
+    enlace.textContent = 'Avisar por WhatsApp';
+    enlace.href = `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
+  } else if (s.contacto.includes('@')) {
+    enlace.textContent = 'Avisar por correo';
+    const asunto = s.estado === 'confirmada' ? 'Tu cita en Mabel Citas está confirmada' : 'Sobre tu solicitud de cita en Mabel Citas';
+    enlace.href = `mailto:${s.contacto.trim()}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
+  } else {
+    return null;
+  }
+  return enlace;
+}
 const lista = document.getElementById('lista');
 
 const ESTADOS = {
@@ -184,6 +230,13 @@ function dibujarLista(solicitudes) {
       rechazar.addEventListener('click', () => responder(s.codigo_seguimiento, 'rechazar', [confirmar, rechazar]));
       acciones.append(confirmar, rechazar);
       item.append(acciones);
+    } else {
+      const aviso = botonAviso(s);
+      if (aviso) {
+        const acciones = crear('div', undefined, 'acciones');
+        acciones.append(aviso);
+        item.append(acciones);
+      }
     }
 
     return item;
