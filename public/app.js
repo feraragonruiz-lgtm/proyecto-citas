@@ -3,6 +3,12 @@ const resultadoCrear = document.getElementById('resultado-crear');
 const formConsultar = document.getElementById('form-consultar');
 const resultadoConsultar = document.getElementById('resultado-consultar');
 
+const ESTADOS = {
+  pendiente: 'Pendiente de respuesta',
+  confirmada: 'Confirmada ✔',
+  rechazada: 'No disponible, por favor elige otro horario',
+};
+
 function mostrar(elemento, contenido, esError) {
   elemento.replaceChildren(...contenido);
   elemento.classList.toggle('error', esError);
@@ -67,7 +73,7 @@ formConsultar.addEventListener('submit', async (event) => {
       crear('p', 'Código: ' + cuerpo.codigo_seguimiento),
       crear('p', 'Nombre: ' + cuerpo.nombre),
       crear('p', 'Fecha y hora: ' + new Date(cuerpo.fecha_hora).toLocaleString('es')),
-      crear('p', 'Estado: ' + cuerpo.estado, 'codigo'),
+      crear('p', 'Estado: ' + (ESTADOS[cuerpo.estado] || cuerpo.estado), 'codigo'),
     ], false);
   } catch {
     mostrar(resultadoConsultar, [crear('span', 'No se pudo conectar con el servidor.')], true);

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Mabel Citas · Administración</title>
+  <link rel="icon" href="logo.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="encabezado">
+    <img src="logo.svg" alt="Mabel Citas">
+  </header>
+
+  <section id="seccion-login">
+    <h2>Administración</h2>
+    <form id="form-login">
+      <label>
+        Clave de administración
+        <input type="password" name="clave" autocomplete="current-password" required>
+      </label>
+      <button type="submit">Entrar</button>
+    </form>
+    <p id="error-login" class="resultado error" hidden></p>
+  </section>
+
+  <section id="seccion-panel" hidden>
+    <div class="barra">
+      <h2>Solicitudes de citas</h2>
+      <button type="button" id="boton-salir" class="secundario">Salir</button>
+    </div>
+    <button type="button" id="boton-actualizar" class="secundario">Actualizar lista</button>
+    <p id="error-panel" class="resultado error" hidden></p>
+    <div id="lista"></div>
+  </section>
+
+  <script src="admin.js"></script>
+</body>
+</html>

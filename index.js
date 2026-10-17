@@ -5,7 +5,7 @@ const path = require('path');
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 
-const { SUPABASE_URL, SUPABASE_KEY } = process.env;
+const { SUPABASE_URL, SUPABASE_KEY, ADMIN_PASSWORD } = process.env;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Faltan SUPABASE_URL o SUPABASE_KEY en las variables de entorno.');
@@ -69,6 +69,24 @@ function noEncontrada(res, codigo) {
   return res.status(404).json({ error: `No existe una solicitud con el código ${codigo}.` });
 }
 
+// Compara la clave en tiempo constante (hasheando ambas para igualar el largo).
+function claveCorrecta(clave) {
+  const a = crypto.createHash('sha256').update(String(clave)).digest();
+  const b = crypto.createHash('sha256').update(ADMIN_PASSWORD).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+// Las rutas de administración requieren el header X-Admin-Password.
+function soloAdmin(req, res, next) {
+  if (!ADMIN_PASSWORD) {
+    return res.status(503).json({ error: 'El panel de administración no está configurado (falta ADMIN_PASSWORD).' });
+  }
+  if (!claveCorrecta(req.get('X-Admin-Password') || '')) {
+    return res.status(401).json({ error: 'Clave de administración incorrecta.' });
+  }
+  next();
+}
+
 app.get('/solicitudes/:codigo', async (req, res) => {
   const codigo = req.params.codigo.trim().toUpperCase();
 
@@ -90,23 +108,46 @@ app.get('/solicitudes/:codigo', async (req, res) => {
   res.json(data);
 });
 
-app.patch('/solicitudes/:codigo/confirmar', async (req, res) => {
-  const codigo = req.params.codigo.trim().toUpperCase();
+function cambiarEstado(estado) {
+  return async (req, res) => {
+    const codigo = req.params.codigo.trim().toUpperCase();
 
+    const { data, error } = await supabase
+      .from('solicitudes')
+      .update({ estado })
+      .eq('codigo_seguimiento', codigo)
+      .select(CAMPOS_PUBLICOS)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`Error al cambiar la solicitud a ${estado}:`, error);
+      return res.status(500).json({ error: 'No se pudo actualizar la solicitud.' });
+    }
+
+    if (!data) {
+      return noEncontrada(res, codigo);
+    }
+
+    res.json(data);
+  };
+}
+
+app.patch('/solicitudes/:codigo/confirmar', soloAdmin, cambiarEstado('confirmada'));
+app.patch('/solicitudes/:codigo/rechazar', soloAdmin, cambiarEstado('rechazada'));
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+app.get('/api/admin/solicitudes', soloAdmin, async (req, res) => {
   const { data, error } = await supabase
     .from('solicitudes')
-    .update({ estado: 'confirmada' })
-    .eq('codigo_seguimiento', codigo)
-    .select(CAMPOS_PUBLICOS)
-    .maybeSingle();
+    .select(CAMPOS_PUBLICOS + ', created_at')
+    .order('fecha_hora', { ascending: true });
 
   if (error) {
-    console.error('Error al confirmar la solicitud:', error);
-    return res.status(500).json({ error: 'No se pudo confirmar la solicitud.' });
-  }
-
-  if (!data) {
-    return noEncontrada(res, codigo);
+    console.error('Error al listar solicitudes:', error);
+    return res.status(500).json({ error: 'No se pudieron cargar las solicitudes.' });
   }
 
   res.json(data);
