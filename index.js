@@ -69,23 +69,101 @@ function noEncontrada(res, codigo) {
   return res.status(404).json({ error: `No existe una solicitud con el código ${codigo}.` });
 }
 
-// Compara la clave en tiempo constante (hasheando ambas para igualar el largo).
-function claveCorrecta(clave) {
-  const a = crypto.createHash('sha256').update(String(clave)).digest();
-  const b = crypto.createHash('sha256').update(ADMIN_PASSWORD).digest();
-  return crypto.timingSafeEqual(a, b);
+// La clave de administración se toma de ADMIN_PASSWORD si existe; si no, de la
+// tabla "ajustes", donde la crea la dueña desde el panel la primera vez.
+const AJUSTE_CLAVE = 'admin_password';
+const LARGO_MINIMO_CLAVE = 8;
+
+// Cifra la clave con scrypt y una sal aleatoria; se guarda como "sal:hash" en hex.
+function cifrarClave(clave) {
+  const sal = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(clave, sal, 64);
+  return sal.toString('hex') + ':' + hash.toString('hex');
+}
+
+function claveCoincide(clave, guardada) {
+  const [salHex, hashHex] = guardada.split(':');
+  const esperado = Buffer.from(hashHex, 'hex');
+  const calculado = crypto.scryptSync(String(clave), Buffer.from(salHex, 'hex'), esperado.length);
+  return crypto.timingSafeEqual(calculado, esperado);
+}
+
+const claveDeEntorno = ADMIN_PASSWORD ? cifrarClave(ADMIN_PASSWORD) : null;
+
+// Devuelve la clave cifrada, o null si todavía no se creó ninguna.
+async function obtenerClaveGuardada() {
+  if (claveDeEntorno) return claveDeEntorno;
+
+  const { data, error } = await supabase
+    .from('ajustes')
+    .select('valor')
+    .eq('clave', AJUSTE_CLAVE)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? data.valor : null;
 }
 
 // Las rutas de administración requieren el header X-Admin-Password.
-function soloAdmin(req, res, next) {
-  if (!ADMIN_PASSWORD) {
-    return res.status(503).json({ error: 'El panel de administración no está configurado (falta ADMIN_PASSWORD).' });
+async function soloAdmin(req, res, next) {
+  let guardada;
+  try {
+    guardada = await obtenerClaveGuardada();
+  } catch (error) {
+    console.error('Error al leer la clave de administración:', error);
+    return res.status(500).json({ error: 'No se pudo verificar la clave.' });
   }
-  if (!claveCorrecta(req.get('X-Admin-Password') || '')) {
+
+  if (!guardada) {
+    return res.status(503).json({ error: 'Todavía no se creó la clave de administración.' });
+  }
+  if (!claveCoincide(req.get('X-Admin-Password') || '', guardada)) {
     return res.status(401).json({ error: 'Clave de administración incorrecta.' });
   }
   next();
 }
+
+app.get('/api/admin/estado', async (req, res) => {
+  try {
+    res.json({ claveCreada: Boolean(await obtenerClaveGuardada()) });
+  } catch (error) {
+    console.error('Error al leer la clave de administración:', error);
+    res.status(500).json({ error: 'No se pudo verificar el panel.' });
+  }
+});
+
+// Solo funciona una vez: cuando todavía no existe ninguna clave.
+app.post('/api/admin/clave', async (req, res) => {
+  const { clave } = req.body || {};
+
+  if (typeof clave !== 'string' || clave.length < LARGO_MINIMO_CLAVE) {
+    return res.status(400).json({ error: `La clave debe tener al menos ${LARGO_MINIMO_CLAVE} caracteres.` });
+  }
+
+  try {
+    if (await obtenerClaveGuardada()) {
+      return res.status(409).json({ error: 'La clave de administración ya fue creada.' });
+    }
+  } catch (error) {
+    console.error('Error al leer la clave de administración:', error);
+    return res.status(500).json({ error: 'No se pudo crear la clave.' });
+  }
+
+  // La clave primaria impide que se creen dos claves aunque lleguen dos pedidos a la vez.
+  const { error } = await supabase
+    .from('ajustes')
+    .insert({ clave: AJUSTE_CLAVE, valor: cifrarClave(clave) });
+
+  if (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'La clave de administración ya fue creada.' });
+    }
+    console.error('Error al guardar la clave de administración:', error);
+    return res.status(500).json({ error: 'No se pudo crear la clave.' });
+  }
+
+  res.status(201).json({ ok: true });
+});
 
 app.get('/solicitudes/:codigo', async (req, res) => {
   const codigo = req.params.codigo.trim().toUpperCase();

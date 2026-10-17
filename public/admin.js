@@ -1,3 +1,6 @@
+const seccionCrear = document.getElementById('seccion-crear');
+const formCrearClave = document.getElementById('form-crear-clave');
+const errorCrear = document.getElementById('error-crear');
 const seccionLogin = document.getElementById('seccion-login');
 const seccionPanel = document.getElementById('seccion-panel');
 const formLogin = document.getElementById('form-login');
@@ -56,16 +59,80 @@ function salir(mensaje) {
   clave = null;
   guardarClave(null);
   seccionPanel.hidden = true;
+  seccionCrear.hidden = true;
   seccionLogin.hidden = false;
   mostrarError(errorLogin, mensaje || '');
 }
+
+// Si todavía no hay clave creada, muestra el formulario para crearla.
+async function iniciar() {
+  if (clave) {
+    await cargarSolicitudes();
+    return;
+  }
+  try {
+    const respuesta = await fetch('/api/admin/estado');
+    const cuerpo = await respuesta.json();
+    if (respuesta.ok && !cuerpo.claveCreada) {
+      seccionCrear.hidden = false;
+      return;
+    }
+    salir(respuesta.ok ? '' : cuerpo.error);
+  } catch {
+    salir('No se pudo conectar con el servidor.');
+  }
+}
+
+formCrearClave.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const nueva = formCrearClave.clave.value;
+
+  if (nueva !== formCrearClave.repetir.value) {
+    mostrarError(errorCrear, 'Las dos claves no coinciden.');
+    return;
+  }
+
+  try {
+    const respuesta = await fetch('/api/admin/clave', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clave: nueva }),
+    });
+    const cuerpo = await respuesta.json().catch(() => ({}));
+
+    if (respuesta.status === 409) {
+      formCrearClave.reset();
+      salir(cuerpo.error + ' Ingresa con tu clave.');
+      return;
+    }
+    if (!respuesta.ok) {
+      mostrarError(errorCrear, cuerpo.error || 'No se pudo crear la clave.');
+      return;
+    }
+
+    formCrearClave.reset();
+    seccionCrear.hidden = true;
+    clave = nueva;
+    guardarClave(clave);
+    await cargarSolicitudes();
+  } catch {
+    mostrarError(errorCrear, 'No se pudo conectar con el servidor.');
+  }
+});
 
 async function cargarSolicitudes() {
   mostrarError(errorPanel, '');
   try {
     const { respuesta, cuerpo } = await pedir('/api/admin/solicitudes');
 
-    if (respuesta.status === 401 || respuesta.status === 503) {
+    if (respuesta.status === 503) {
+      // Todavía no hay clave creada: volver a mostrar el formulario para crearla.
+      salir();
+      seccionLogin.hidden = true;
+      seccionCrear.hidden = false;
+      return;
+    }
+    if (respuesta.status === 401) {
       salir(cuerpo.error);
       return;
     }
@@ -150,4 +217,4 @@ formLogin.addEventListener('submit', async (event) => {
 document.getElementById('boton-salir').addEventListener('click', () => salir());
 document.getElementById('boton-actualizar').addEventListener('click', cargarSolicitudes);
 
-if (clave) cargarSolicitudes();
+iniciar();

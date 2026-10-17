@@ -13,7 +13,24 @@
     <img src="logo.svg" alt="Mabel Citas">
   </header>
 
-  <section id="seccion-login">
+  <section id="seccion-crear" hidden>
+    <h2>Crea tu clave</h2>
+    <p>Es la primera vez que entras. Elige la clave con la que vas a entrar al panel (mínimo 8 caracteres) y anótala en un lugar seguro.</p>
+    <form id="form-crear-clave">
+      <label>
+        Nueva clave
+        <input type="password" name="clave" autocomplete="new-password" minlength="8" required>
+      </label>
+      <label>
+        Repite la clave
+        <input type="password" name="repetir" autocomplete="new-password" minlength="8" required>
+      </label>
+      <button type="submit">Crear clave</button>
+    </form>
+    <p id="error-crear" class="resultado error" hidden></p>
+  </section>
+
+  <section id="seccion-login" hidden>
     <h2>Administración</h2>
     <form id="form-login">
       <label>
