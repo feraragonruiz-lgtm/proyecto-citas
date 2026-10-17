@@ -6,6 +6,14 @@ const seccionPanel = document.getElementById('seccion-panel');
 const formLogin = document.getElementById('form-login');
 const errorLogin = document.getElementById('error-login');
 const errorPanel = document.getElementById('error-panel');
+const avisoPanel = document.getElementById('aviso-panel');
+
+const AVISOS = {
+  enviado: (s) => `Listo. Se le envió un correo a ${s.nombre} (${s.contacto}).`,
+  sin_email: (s) => `Listo. ${s.nombre} dejó un teléfono (${s.contacto}), así que no se envió correo: avísale por mensaje.`,
+  no_configurado: (s) => `Listo, pero no se envió correo a ${s.nombre}: el envío de correos todavía no está configurado.`,
+  error: (s) => `Listo, pero el correo a ${s.nombre} no se pudo enviar. Avísale por otro medio.`,
+};
 const lista = document.getElementById('lista');
 
 const ESTADOS = {
@@ -122,6 +130,7 @@ formCrearClave.addEventListener('submit', async (event) => {
 
 async function cargarSolicitudes() {
   mostrarError(errorPanel, '');
+  mostrarError(avisoPanel, '');
   try {
     const { respuesta, cuerpo } = await pedir('/api/admin/solicitudes');
 
@@ -200,6 +209,7 @@ async function responder(codigo, accion, botones) {
     }
 
     await cargarSolicitudes();
+    mostrarError(avisoPanel, AVISOS[cuerpo.aviso] ? AVISOS[cuerpo.aviso](cuerpo) : '');
   } catch {
     mostrarError(errorPanel, 'No se pudo conectar con el servidor.');
     botones.forEach((b) => { b.disabled = false; });

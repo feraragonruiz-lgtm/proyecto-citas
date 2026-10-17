@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
+const { avisarCambioDeEstado } = require('./correo');
 
 const { SUPABASE_URL, SUPABASE_KEY, ADMIN_PASSWORD } = process.env;
 
@@ -17,6 +18,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Railway pasa por un proxy HTTPS; así req.protocol devuelve "https".
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -206,7 +209,11 @@ function cambiarEstado(estado) {
       return noEncontrada(res, codigo);
     }
 
-    res.json(data);
+    // El cambio ya quedó guardado; si el correo falla, igual respondemos bien.
+    const sitio = `${req.protocol}://${req.get('host')}/`;
+    const aviso = await avisarCambioDeEstado(data, sitio);
+
+    res.json({ ...data, aviso });
   };
 }
 
